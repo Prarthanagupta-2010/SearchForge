@@ -1,0 +1,513 @@
+version: '3.6'
+
+volumes:
+  apache-nifi_data:
+    driver: local
+  zookeeper-data:
+    driver: local
+  zookeeper-log:
+    driver: local
+  kafka-data:
+    driver: local
+  hadoop_namenode:
+    driver: local
+  hadoop-datanode-1:
+    driver: local
+  hadoop-datanode-2:
+    driver: local
+  hadoop-datanode-3:
+    driver: local
+  hadoop_historyserver:
+    driver: local
+  elasticsearch-data:
+    driver: local
+  logstash-data:
+    driver: local
+  postgres_data:
+    driver: local
+  pgadmin-data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+
+
+networks:
+  platform_network:
+    ipam:
+      config:
+        - subnet: 192.168.1.0/24
+
+services:
+
+  # Apache Tika Server
+  tika_server:
+    image: apache/tika:1.24
+    container_name: tika_server
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.13
+    ports:
+      - "9997:9998"
+
+  # Apache Tika Server with OCR
+  tika_server_ocr:
+    image: apache/tika:1.24-full
+    container_name: tika_server_ocr
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.14
+    ports:
+      - "9998:9998"
+
+  # Easy to use SFTP (SSH File Transfer Protocol) server with OpenSSH.
+  sftp:
+    image: atmoz/sftp
+    container_name: sftp
+    volumes:
+      - ./sftp/users.conf:/etc/sftp/users.conf:ro
+      - ./sftp/upload:/home/ssanchez/uploads
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.15
+    ports:
+      - "2222:22"
+
+  # ZooKeeper is a centralized service for maintaining configuration information,
+  # naming, providing distributed synchronization, and providing group services.
+  # It provides distributed coordination for our Kafka cluster.
+  # http://zookeeper.apache.org/
+  zookeeper:
+    image: confluentinc/cp-zookeeper
+    container_name: zookeeper
+    # ZooKeeper is designed to "fail-fast", so it is important to allow it to
+    # restart automatically.
+    restart: unless-stopped
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-log:/var/lib/zookeeper/log
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.16
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  # Unofficial convenience binaries and Docker images for Apache NiFi 
+  nifi:
+    build: 
+      context: ./nifi
+    container_name: nifi
+    volumes:
+      - 'apache-nifi_data:/apache/nifi'
+    environment:
+      - NIFI_WEB_HTTP_PORT=8080
+      - NIFI_CLUSTER_IS_NODE=true
+      - NIFI_CLUSTER_NODE_PROTOCOL_PORT=8082
+      - NIFI_ZK_CONNECT_STRING=zookeeper:2181
+      - NIFI_ELECTION_MAX_WAIT=1 min
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.17
+    ports:
+      - '8080:8080'
+
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: hadoop-namenode
+    restart: always
+    ports:
+      - 8089:9870
+    volumes:
+      - hadoop_namenode:/hadoop/dfs/name
+    environment:
+      - CLUSTER_NAME=test
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.18
+    env_file:
+      - ./hadoop.env
+
+  datanode1:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: hadoop-datanode-1
+    restart: always
+    volumes:
+      - hadoop-datanode-1:/hadoop/dfs/data
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870"
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.19
+    env_file:
+      - ./hadoop.env
+
+  datanode2:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: hadoop-datanode-2
+    restart: always
+    volumes:
+      - hadoop-datanode-2:/hadoop/dfs/data
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870"
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.20
+    env_file:
+      - ./hadoop.env
+
+  datanode3:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: hadoop-datanode-3
+    restart: always
+    volumes:
+      - hadoop-datanode-3:/hadoop/dfs/data
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870"
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.21
+    env_file:
+      - ./hadoop.env
+  
+  resourcemanager:
+    image: bde2020/hadoop-resourcemanager:2.0.0-hadoop3.2.1-java8
+    container_name: hadoop-resourcemanager
+    restart: always
+    environment:
+      SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode1:9864 datanode2:9864 datanode3:9864"
+    env_file:
+      - ./hadoop.env
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.22
+    ports:
+      - '8081:8088'
+
+  nodemanager:
+    image: bde2020/hadoop-nodemanager:2.0.0-hadoop3.2.1-java8
+    container_name: hadoop-nodemanager
+    restart: always
+    environment:
+      SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode1:9864 datanode2:9864 datanode3:9864 resourcemanager:8088"
+    env_file:
+      - ./hadoop.env
+  
+  historyserver:
+    image: bde2020/hadoop-historyserver:2.0.0-hadoop3.2.1-java8
+    container_name: hadoop-historyserver
+    restart: always
+    environment:
+      SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode1:9864 datanode2:9864 datanode3:9864 resourcemanager:8088"
+    volumes:
+      - hadoop_historyserver:/hadoop/yarn/timeline
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.23
+    env_file:
+      - ./hadoop.env
+
+  # Kafka is a distributed streaming platform. It is used to build real-time streaming
+  # data pipelines that reliably move data between systems and platforms, and to build
+  # real-time streaming applications that transform or react to the streams of data.
+  # http://kafka.apache.org/
+  kafka:
+    image: confluentinc/cp-kafka
+    container_name: kafka
+    volumes:
+      - kafka-data:/var/lib/kafka
+    environment:
+      # Required. Instructs Kafka how to get in touch with ZooKeeper.
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_COMPRESSION_TYPE: gzip
+      # Required when running in a single-node cluster, as we are. We would be able to take the default if we had
+      # three or more nodes in the cluster.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      # Required. Kafka will publish this address to ZooKeeper so clients know
+      # how to get in touch with Kafka. "PLAINTEXT" indicates that no authentication
+      # mechanism will be used.
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.24
+    links:
+      - zookeeper
+
+  # The Kafka REST Proxy provides a RESTful interface to a Kafka cluster.
+  # It makes it easy to produce and consume messages, view the state
+  # of the cluster, and perform administrative actions without using
+  # the native Kafka protocol or clients.
+  # https://github.com/confluentinc/kafka-rest
+  kafka-rest-proxy:
+    image: confluentinc/cp-kafka-rest:latest
+    container_name: kafka-rest-proxy
+    environment:
+      # Specifies the ZooKeeper connection string. This service connects
+      # to ZooKeeper so that it can broadcast its endpoints as well as
+      # react to the dynamic topology of the Kafka cluster.
+      KAFKA_REST_ZOOKEEPER_CONNECT: zookeeper:2181
+      # The address on which Kafka REST will listen for API requests.
+      KAFKA_REST_LISTENERS: http://0.0.0.0:8082/
+      # Required. This is the hostname used to generate absolute URLs in responses.
+      # It defaults to the Java canonical hostname for the container, which might
+      # not be resolvable in a Docker environment.
+      KAFKA_REST_HOST_NAME: kafka-rest-proxy
+      # The list of Kafka brokers to connect to. This is only used for bootstrapping,
+      # the addresses provided here are used to initially connect to the cluster,
+      # after which the cluster will dynamically change. Thanks, ZooKeeper!
+      KAFKA_REST_BOOTSTRAP_SERVERS: kafka:9092
+    # Kafka REST relies upon Kafka, ZooKeeper
+    # This will instruct docker to wait until those services are up
+    # before attempting to start Kafka REST.
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.25
+    depends_on:
+      - zookeeper
+      - kafka
+
+  # Browse Kafka topics and understand what's happening on your cluster.
+  # Find topics / view topic metadata / browse topic data
+  # (kafka messages) / view topic configuration / download data.
+  # https://github.com/Landoop/kafka-topics-ui
+  kafka-topics-ui:
+    image: landoop/kafka-topics-ui:latest
+    container_name: kafka-topics-ui
+    ports:
+      - "8082:8000"
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.26
+    environment:
+      # Required. Instructs the UI where it can find the Kafka REST Proxy.
+      KAFKA_REST_PROXY_URL: "http://kafka-rest-proxy:8082/"
+      # This instructs the docker image to use Caddy to proxy traffic to kafka-topics-ui.
+      PROXY: "true"
+    # kafka-topics-ui relies upon Kafka REST.
+    # This will instruct docker to wait until those services are up
+    # before attempting to start kafka-topics-ui.
+    depends_on:
+      - kafka-rest-proxy
+
+  mongo:
+    image: mongo
+    container_name: mongo
+    env_file:
+      - .env
+    restart: always
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.27
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - MONGO_INITDB_DATABASE=${MONGO_DB}
+
+
+  # Web-based MongoDB admin interface, written with Node.js and express
+  mongo-express:
+    image: mongo-express
+    container_name: mongo-express
+    env_file:
+      - .env
+    restart: always
+    environment:
+      - ME_CONFIG_MONGODB_SERVER=mongo
+      - ME_CONFIG_MONGODB_PORT=27017
+      - ME_CONFIG_MONGODB_ENABLE_ADMIN=true
+      - ME_CONFIG_MONGODB_AUTH_DATABASE=admin
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=${MONGO_ROOT_USER}
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGO_ROOT_PASSWORD}
+      - ME_CONFIG_BASICAUTH_USERNAME=${MONGOEXPRESS_LOGIN}
+      - ME_CONFIG_BASICAUTH_PASSWORD=${MONGOEXPRESS_PASSWORD}
+    depends_on:
+      - mongo
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.28
+    ports:
+      - "8083:8081"
+
+  # Elasticsearch is a powerful open source search and analytics engine that makes data easy to explore.
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.6.2
+    container_name: elasticsearch
+    environment:
+      - ELASTIC_PASSWORD=ssanchez00
+      - "ES_JAVA_OPTS=-Xmx256m -Xms256m"
+      - discovery.type=single-node
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.29
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+      - ./elasticsearch/config/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+      - ./elasticsearch/certificate/elastic-certificates.p12:/usr/share/elasticsearch/config/elastic-certificates.p12
+
+  # Logstash is a tool for managing events and logs.
+  # Logstash is an open source data collection engine with real-time pipelining 
+  # capabilities. Logstash can dynamically unify data from disparate sources and normalize the data into destinations of your choice.
+  logstash:
+    build:
+      context: ./logstash
+      dockerfile: Dockerfile
+    container_name: logstash
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.30
+    volumes:
+      - logstash-data:/usr/share/logstash/data
+      - ./logstash/pipeline/:/usr/share/logstash/pipeline/
+      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml
+      - ./logstash/certificate/:/etc/logstash/keys/
+    restart: always
+    environment:
+      - "LS_JAVA_OPTS=-Xmx400m -Xms400m"
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.6.2
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=ssanchez00
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.31
+    ports:
+      - "8084:5601"
+    volumes:
+      - ./kibana/config/kibana.yml:/usr/share/kibana/config/kibana.yml
+      - ./kibana/certificate/:/etc/kibana/keys/
+    depends_on:
+      - elasticsearch
+
+  postgres:
+    build: 
+      context: ./keycloak
+    container_name: keycloak_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.32
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ssanchez00
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: keycloak_db_ui
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@dreamsoftware.com
+      PGADMIN_DEFAULT_PASSWORD: ssanchez00
+      PGADMIN_LISTEN_PORT: 80
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.33
+    ports:
+      - 8085:80
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+
+  keycloak:
+    image: jboss/keycloak
+    container_name: keycloak
+    environment:
+      DB_VENDOR: POSTGRES
+      DB_ADDR: postgres
+      DB_DATABASE: keycloak
+      DB_USER: keycloak
+      DB_SCHEMA: public
+      DB_PASSWORD: ssanchez00
+      KEYCLOAK_USER: admin
+      KEYCLOAK_PASSWORD: ssanchez00
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.34
+    ports:
+      - 8086:8080
+    depends_on:
+      - postgres
+
+  consul:
+    image: consul:latest
+    container_name: consul-server
+    command: agent -server -ui -node=server1 -bootstrap-expect=1 -client=0.0.0.0
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.35
+    ports:
+      - 8087:8500
+
+  # File Management Service
+  file_management_service:
+    image: ssanchez11/file_management_service:0.0.1-SNAPSHOT
+    container_name: file_management_service
+    restart: unless-stopped
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.36
+
+  # File Metadata Service
+  file_metadata_service:
+    image: ssanchez11/file_metadata_service:0.0.1-SNAPSHOT
+    container_name: file_metadata_service
+    restart: unless-stopped
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.37
+
+  # File Search Service
+  file_search_service:
+    image: ssanchez11/file_search_service:0.0.1-SNAPSHOT
+    container_name: file_search_service
+    restart: unless-stopped
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.38
+
+  # File Notification Service
+  file_notification_service:
+    image: ssanchez11/file_notifications_service:0.0.1-SNAPSHOT
+    container_name: file_notifications_service
+    restart: unless-stopped
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.39
+
+  # File API Gateway Service
+  files_api_gateway_service:
+    image: ssanchez11/files_api_gateway_service:0.0.1-SNAPSHOT
+    container_name: files_api_gateway_service
+    restart: unless-stopped
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.40
+    ports:
+      - "2223:22"
+
+  # Rabbit MQ Stomp
+  rabbitmq-stomp:
+    image: activiti/rabbitmq-stomp
+    container_name: rabbitmq-stomp
+    volumes:
+      - 'rabbitmq_data:/var/lib/rabbitmq'
+    networks:
+      platform_network:
+        ipv4_address: 192.168.1.41
+    ports:
+      - '8088:15672'
+
+
+
+  
+      
+      

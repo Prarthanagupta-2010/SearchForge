@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: files-search-service
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://keycloak:8080/auth/realms/document_search_engine
+  cloud:
+    consul:
+        host: consul-server
+        port: 8500
+        discovery:
+            port: 8080
+            prefer-ip-address: true
+            healthCheckPath: /actuator/health
+
+management:
+  health:
+    elasticsearch:
+      enabled: false
+## Spring Open API
+springdoc:
+    swagger-ui:
+        path: /swagger-ui.html
+    api-docs:
+        path: /v3/api-docs
+
+elasticsearch:
+    host: elasticsearch:9200
+    cert:
+        file: elastic-certificates.p12
+        password: ssanchez00
+    user:
+        name: elastic
+        pass: ssanchez00
+
+logging.level:
+  org.springframework.cloud.gateway: DEBUG
+  org.springframework.security: DEBUG
+  org.springframework.web.reactive.function.client: TRACE
+  com.dreamsoftware.documentsearchengine: DEBUG
+
+server.port: 8080

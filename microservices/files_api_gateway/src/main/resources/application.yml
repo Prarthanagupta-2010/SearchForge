@@ -1,0 +1,110 @@
+spring:
+  application:
+    name: files-api-gateway-service
+  security:
+    oauth2:
+      client:
+        provider:
+          keycloak:
+            token-uri: http://keycloak:8080/auth/realms/document_search_engine/protocol/openid-connect/token
+            authorization-uri: http://keycloak:8080/auth/realms/document_search_engine/protocol/openid-connect/auth
+            userinfo-uri: http://keycloak:8080/auth/realms/document_search_engine/protocol/openid-connect/userinfo
+            user-name-attribute: preferred_username
+        registration:
+          files-management-client:
+            provider: keycloak
+            client-id: files-management-client
+            client-secret: 23c6be5d-0aed-421b-a245-9f13ee5412c9
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/keycloak"
+          files-viewing-client:
+            provider: keycloak
+            client-id: files-viewing-client
+            client-secret: 8d238a8c-6f0c-4935-b394-da4b4901aec1
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/keycloak"
+  cloud:
+    consul:
+        enabled: true
+        host: consul-server
+        port: 8500
+        discovery:
+            register: false
+            registerHealthCheck: false
+    gateway:
+        discovery:
+            locator:
+                enabled: true
+        default-filters:
+            - TokenRelay
+        routes:
+            - id: files-metadata-service
+              uri: lb://files-metadata-service
+              predicates:
+                - Path=/metadata/**
+              filters:
+                - RemoveRequestHeader=Cookie
+                - RewritePath=/metadata/(?<path>.*), /api/v1/metadata/$\{path}
+            - id: files-metadata-service-swagger
+              uri: lb://files-metadata-service
+              predicates:
+                - Path=/swagger-metadata-ui.html
+              filters:
+                - RemoveRequestHeader=Cookie
+                - RewritePath=/swagger-metadata-ui.html, /swagger-ui.html
+            - id: files-search-service
+              uri: lb://files-search-service
+              predicates:
+                - Path=/search/**
+              filters:
+                - RemoveRequestHeader=Cookie
+                - RewritePath=/search/(?<path>.*), /api/v1/search/$\{path}
+            - id: files-search-service-swagger
+              uri: lb://files-search-service
+              predicates:
+                - Path=/swagger-search-ui.html
+              filters:
+                - RemoveRequestHeader=Cookie
+                - RewritePath=/swagger-search-ui.html, /swagger-ui.html
+            - id: files-management-service
+              uri: lb://files-management-service
+              predicates:
+                - Path=/management/**
+              filters:
+                - RemoveRequestHeader=Cookie
+                - RewritePath=/management/(?<path>.*), /api/v1/management/$\{path}
+            - id: files-management-service-swagger
+              uri: lb://files-management-service
+              predicates:
+                - Path=/swagger-management-ui.html
+              filters:
+                - RemoveRequestHeader=Cookie
+                - RewritePath=/swagger-management-ui.html, /swagger-ui.html
+            - id: files-notifications-service
+              uri: lb://files-notifications-service
+              predicates:
+                - Path=/notifications/**
+              filters:
+                - RemoveRequestHeader=Cookie
+                - RewritePath=/notifications/(?<path>.*), /api/v1/notifications/$\{path}
+            - id: files-notifications-service-swagger
+              uri: lb://files-notifications-service
+              predicates:
+                - Path=/swagger-management-ui.html
+              filters:
+                - RemoveRequestHeader=Cookie
+                - RewritePath=/swagger-management-ui.html, /swagger-ui.html
+            - id: openapi
+              uri: http://localhost:${server.port}
+              predicates:
+                - Path=/v3/api-docs/**
+              filters:
+                - RewritePath=/v3/api-docs/(?<path>.*), /$\{path}/v3/api-docs
+
+
+server.port: 8080
+
+logging.level:
+  org.springframework.cloud.gateway: DEBUG
+  org.springframework.security: DEBUG
+  org.springframework.web.reactive.function.client: DEBUG

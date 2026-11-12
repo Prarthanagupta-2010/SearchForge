@@ -1,0 +1,59 @@
+spring:
+  application:
+    name: files-management-service
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://keycloak:8080/auth/realms/document_search_engine
+  cloud:
+    consul:
+        host: consul-server
+        port: 8500
+        discovery:
+            port: 8080
+            prefer-ip-address: true
+            healthCheckPath: /actuator/health
+    stream:
+        kafka:
+            binder:
+                brokers: kafka:9092
+                requiredAcks: 1
+                auto-create-topics: false
+                configuration:
+                    auto:
+                        offset.reset: latest
+            bindings:
+                files-processed-operations:
+                    consumer:
+                        autoCommitOffset: false
+        bindings:
+            processed-files-state:
+                group: files-management
+
+## SFTP Config
+sftp:
+    hostname: sftp
+    port: 22
+    username: ssanchez
+    password: ssanchez00
+    remoteFolder: uploads/
+
+## Uploads Config
+uploads:
+    directory: /opt/uploads
+
+## Spring Open API
+springdoc:
+    swagger-ui:
+        path: /swagger-ui.html
+    api-docs:
+        path: /v3/api-docs
+
+logging.level:
+  org.springframework.cloud.gateway: DEBUG
+  org.springframework.security: DEBUG
+  com.dreamsoftware.documentsearchengine: DEBUG
+  org.springframework.web.reactive.function.client: TRACE
+
+server.port: 8080
